@@ -65,7 +65,7 @@ export function computeModel(base, shelves) {
     o.boltX = p.angT + p.angB / 2;                     // ось болта полочки от кольца
     // точки крепления полочки к горизонтальным полкам уголков (по одному болту на уголок)
     o.boltPts = o.bracketZ.map(dz => ({ x: o.boltX, z: dz }));
-    // приваренные подкладки (пистоны) Ø5×3 под пластиной — под каждым столбиком
+    // подкладки Ø5×3 под пластиной — усиление под сварку столбиков
     o.pads = railingLayout(o).posts.map(q => ({ x: q.x, z: q.z }));
     o.rodLen = o.postsTotal * p.postH + o.perim;        // столбики + прутки
     o.brackets = p.angN;

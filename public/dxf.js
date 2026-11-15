@@ -675,6 +675,7 @@ function sheetPolochka(p) {
     `Размеры — по ведомости (лист П7), мм:`,
     ...p.shelves.map((q, i) => `  №${i + 1}: ${q.depth}×${q.width}, угол ${q.ang.toFixed(0)}°, столбиков/стор. ${q.posts}.`),
     `Ограждение — пруток Ø${p.rodD}, столбики Ø${p.postD} (лист П6).`,
+    `Подкладка Ø5×3 под каждым столбиком — усиление под сварку.`,
     `Кромки притупить. Покрытие RAL 9005.`,
   ], 175);
   sheetFrame(dr, { code: 'П5', name: 'Полочка', scale: '1:2', sheets: S_COUNT, mass: (p.shelves[0].mShelf * p.shelves.length).toFixed(2) });

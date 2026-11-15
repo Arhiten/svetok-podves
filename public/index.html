@@ -229,7 +229,7 @@ function renderTables(p) {
     ['4', `Полочка плоская, ${p.shT} мм, размеры по табл.`, p.shelves.length, p.shelves.length ? p.shelves[0].mShelf : 0],
     ['5', `Пруток ограждения Ø${p.rodD}, L=… (табл. полочек)`, p.shelves.length, p.shelves.length ? p.shelves[0].mRod : 0],
     ['6', `Столбик Ø${p.postD}×${p.postH}`, p.shelves.length ? p.shelves[0].postsTotal * p.shelves.length : 0, null],
-    ['7', `Пистон Ø5×3 (приваренный)`, p.shelves.length * p.angN, null],
+    ['7', `Подкладка Ø5×3 (усиление под сварку)`, p.shelves.length ? p.shelves[0].postsTotal * p.shelves.length : 0, null],
     ['8', `Винт M${p.bolt}×${2 * p.t + 8} DIN 7985`, p.bolts, null],
     ['9', `Гайка M${p.bolt} DIN 985 (самоконтр.)`, p.bolts, null],
     ['10', `Шайба ${p.bolt} DIN 125`, p.bolts * 2, null],
@@ -252,7 +252,8 @@ function renderTables(p) {
 
   $('tech').innerHTML = `Кольцо: ${p.mat}, полоса ${p.t}×${p.H}; вальцовка по R${fmt(p.Ro, 0)} (наружн.).<br>
     Уголок: стойка снаружи кольца, выпуск ${p.angDrop} мм вниз, горизонтальная полка ${p.angB} мм наружу под полочку; гнуть по R${fmt(p.angT * 1.5, 1)} мм. Крепление стойки к кольцу 2×M${p.bolt} сквозь полосу.<br>
-    Полочка: лист ${p.shT} мм; отверстия под болты — по осям пистонов, от кромки со стороны кольца ${p.angT + Math.round(p.angB / 2)} мм. Крепление 1×M${p.bolt} на уголок через пистон Ø5×3.<br>
+    Полочка: лист ${p.shT} мм; отверстия под болты — по осям уголков, от кромки со стороны кольца ${p.angT + Math.round(p.angB / 2)} мм. Крепление 1×M${p.bolt} на уголок.<br>
+    Под каждым столбиком с внутренней стороны пластины — подкладка Ø5×3 мм (усиление под сварку).<br>
     Ограждение: 4 прутка Ø${p.rodD} по осям сторон квадрата ${p.shelves[0] ? p.shelves[0].axisD : 184}×${p.shelves[0] ? p.shelves[0].axisW : 184} мм (отступ ${p.railIns} мм от кромки); столбики Ø${p.postD}×${p.postH} — ${p.shelves[0] ? p.shelves[0].postsTotal : 8} шт, ±${p.postOff} мм от середины стороны. Пруток лежит на столбиках.<br>
     Сварка — ГОСТ Р 52916-2008, катет 3 мм. Покрытие: порошок RAL 9005 по фосфатированию. Откл. ±0,5 мм.`;
 }
