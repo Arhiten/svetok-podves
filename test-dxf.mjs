@@ -12,8 +12,8 @@ function params(shelfList) {
     D: 600, H: 40, t: 2, n: 4, gap: 2, rho: 7850, mat: 'Ст3',
     Lp: 80, e: 10, bolt: 5, lugs: true, hang: 550,
     chains: true, plants: false, explode: 0,
-    angT: 2, angA: 30, angB: 35, angDrop: 150, angN: 2, angSpan: 40,
-    rodD: 6, shT: 2, postD: 5, postH: 50,
+    angT: 2, angA: 30, angB: 60, angDrop: 150, angN: 2, angSpan: 100,
+    rodD: 6, shT: 3, postD: 5, postH: 50,
     railIns: 8, cornerGap: 12, postOff: 50,
   };
   return computeModel(base, shelfList);
