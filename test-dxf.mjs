@@ -5,60 +5,25 @@ import { writeFileSync, mkdirSync } from 'fs';
 const HOLE = { 4: 4.5, 5: 5.5, 6: 6.6 };
 const LUG = { w: 24, h: 28, hole: 9 };
 
+import { computeModel } from './public/model.js';
+
 function params(shelfList) {
-  const p = {
+  const base = {
     D: 600, H: 40, t: 2, n: 4, gap: 2, rho: 7850, mat: 'Ст3',
     Lp: 80, e: 10, bolt: 5, lugs: true, hang: 550,
     chains: true, plants: false, explode: 0,
     angT: 2, angA: 30, angB: 35, angDrop: 150, angN: 2, angSpan: 40,
-    rodD: 6, shT: 2, postH: 40,
+    rodD: 6, shT: 2, postD: 5, postH: 50,
+    railIns: 8, cornerGap: 12, postOff: 50,
   };
-  p.Ro = p.D / 2; p.Ri = p.Ro - p.t; p.Rm = p.Ro - p.t / 2;
-  p.dHole = HOLE[p.bolt];
-  p.Cm = Math.PI * 2 * p.Rm;
-  p.L = (p.Cm - p.n * p.gap) / p.n;
-  p.segAng = p.L / p.Rm;
-  p.pitch = 2 * Math.PI / p.n;
-  p.chord = 2 * p.Ro * Math.sin(p.segAng / 2);
-  p.sag = p.Ro * (1 - Math.cos(p.segAng / 2));
-  p.half = (p.Lp - p.gap) / 2;
-  p.holes = [p.e, p.half - p.e];
-  p.Rp = p.Ri - p.t / 2;
-  const kg = mm3 => mm3 * p.rho * 1e-9;
-  p.mSeg = kg(p.L * p.H * p.t);
-  const lugArea = p.lugs ? (LUG.w * (LUG.h - LUG.w / 2) + Math.PI * (LUG.w / 2) ** 2 / 2 - Math.PI * (LUG.hole / 2) ** 2) : 0;
-  p.mPlate = kg((p.Lp * p.H - 4 * Math.PI * (p.dHole / 2) ** 2 + lugArea) * p.t);
-  p.mRing = p.n * (p.mSeg + p.mPlate);
-  p.angArea = (p.angDrop + p.angB - p.angT) * p.angT;
-  p.mBracket = kg(p.angArea * p.angA);
-  p.shelves = shelfList.map(s => {
-    const o = { ...s };
-    o.ins = p.rodD / 2 + 3;
-    o.perim = 2 * ((o.depth - 2 * o.ins) + (o.width - 2 * o.ins));
-    o.rodLen = o.posts * p.postH + 2 * o.perim;
-    o.brackets = p.angN;
-    o.mBracket = p.mBracket * p.angN;
-    o.mShelf = kg(o.depth * o.width * p.shT);
-    o.mRod = kg(o.rodLen * Math.PI * p.rodD ** 2 / 4);
-    o.mTotal = o.mBracket + o.mShelf + o.mRod;
-    o.a = o.ang * Math.PI / 180;
-    return o;
-  });
-  p.mTotal = p.mRing + p.shelves.reduce((a, s) => a + s.mTotal, 0);
-  p.bolts = p.n * 4 + p.shelves.length * (p.angN * 2 + 2);
-  p.paintRing = (2 * p.Cm * p.H + 2 * p.Cm * p.t) / 1e6;
-  p.paintSh = p.shelves.reduce((a, s) => a + (2 * s.depth * s.width + 2 * (s.depth + s.width) * p.shT) / 1e6, 0);
-  p.angPerim = p.angDrop + p.angB + 2 * p.angT;
-  p.paintAng = p.shelves.length * p.angN * p.angPerim * p.angA * 2 / 1e6;
-  p.paint = p.paintRing + p.paintSh + p.paintAng;
-  return p;
+  return computeModel(base, shelfList);
 }
 
 const p = params([
-  { ang: 45, depth: 150, width: 150, posts: 6 },
-  { ang: 135, depth: 150, width: 150, posts: 6 },
-  { ang: 225, depth: 150, width: 150, posts: 6 },
-  { ang: 315, depth: 150, width: 150, posts: 6 },
+  { ang: 45, depth: 200, width: 200, posts: 2 },
+  { ang: 135, depth: 200, width: 200, posts: 2 },
+  { ang: 225, depth: 200, width: 200, posts: 2 },
+  { ang: 315, depth: 200, width: 200, posts: 2 },
 ]);
 
 console.log('Масса, кг:', p.mTotal.toFixed(2), '| окраска, м²:', p.paint.toFixed(3), '| болтов:', p.bolts);
@@ -73,7 +38,8 @@ for (const sh of sheets) {
   const ok = ['SECTION', 'HEADER', 'TABLES', 'BLOCKS', 'ENTITIES', 'ENDSEC', 'EOF']
     .every(k => txt.includes(k));
   const nEnt = (txt.match(/\n0\r?\n(?!SECTION|ENDSEC|EOF|TABLE|ENDTAB|BLOCK|ENDBLK|LTYPE|LAYER|STYLE)/g) || []).length;
-  const layers = [...new Set((txt.match(/\n8\r?\n(.+)/g) || []).map(s => s.split('\n').pop().trim()))];
+  // слой (код 8) идёт сразу после типа сущности (код 0) — иначе ловим значения полей
+  const layers = [...new Set((txt.match(/\n0\r?\n[A-Z]+\r?\n8\r?\n([^\r\n]+)/g) || []).map(s => s.split(/\r?\n/).pop().trim()))];
   console.log(`${sh.code} ${sh.name.padEnd(26)} ${String(bytes.length).padStart(7)} Б  секций:${ok}  сущностей:${nEnt}  слои:${layers.join(',')}`);
   if (!ok) { console.error('  !! нарушена структура DXF'); process.exitCode = 1; }
   writeFileSync(`out/${sh.code}.dxf`, bytes);
@@ -135,7 +101,7 @@ const hasRu = p3.includes(Buffer.from(CP('Накладка')).toString('latin1')
 console.log('Кириллица в DXF (П3):', hasRu ? 'ок' : 'НЕТ');
 
 // Проверка слоёв: код 8 (имя слоя) перед значением
-const layerNames = [...new Set((p3.match(/\r?\n8\r?\n([^\r\n]+)/g) || []).map(s => s.split(/\r?\n/).pop().trim()))];
+const layerNames = [...new Set((p3.match(/\r?\n0\r?\n[A-Z]+\r?\n8\r?\n([^\r\n]+)/g) || []).map(s => s.split(/\r?\n/).pop().trim()))];
 console.log('Слои в П3:', layerNames.join(', ') || 'НЕТ');
 
 // Проверка кодов групп: код и значение чередуются, каждый на своей строке

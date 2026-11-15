@@ -109,15 +109,19 @@
   <h2>Уголок (Г, перевёрнутая)</h2>
   <div class="row"><label>Толщина уголка, мм</label><input id="angT" type="number" value="2" min="1" max="6" step="0.5"></div>
   <div class="row"><label>Ширина полок, мм</label><input id="angA" type="number" value="30" min="10" max="100" step="1"></div>
-  <div class="row"><label>Длина гориз. полки, мм</label><input id="angB" type="number" value="35" min="10" max="120" step="1"></div>
+  <div class="row"><label>Длина гориз. полки, мм</label><input id="angB" type="number" value="30" min="10" max="120" step="1"></div>
   <div class="row"><label>Выпуск стойки вниз, мм</label><input id="angDrop" type="number" value="150" min="30" max="600" step="5"></div>
   <div class="row"><label>Уголков на полочку</label><input id="angN" type="number" value="2" min="1" max="4" step="1"></div>
-  <div class="row"><label>Расст. между уголками, мм</label><input id="angSpan" type="number" value="40" min="0" max="400" step="5"></div>
+  <div class="row"><label>Расст. между уголками, мм</label><input id="angSpan" type="number" value="100" min="0" max="400" step="5"></div>
 
   <h2>Полочка и ограждение</h2>
   <div class="row"><label>Толщина полочки, мм</label><input id="shT" type="number" value="2" min="1" max="6" step="0.5"></div>
   <div class="row"><label>Пруток ограждения Ø, мм</label><input id="rodD" type="number" value="6" min="3" max="20" step="1"></div>
-  <div class="row"><label>Высота столбиков, мм</label><input id="postH" type="number" value="40" min="10" max="200" step="1"></div>
+  <div class="row"><label>Столбик ограждения Ø, мм</label><input id="postD" type="number" value="5" min="3" max="20" step="1"></div>
+  <div class="row"><label>Высота столбиков, мм</label><input id="postH" type="number" value="50" min="10" max="200" step="1"></div>
+  <div class="row"><label>Отступ прутков от кромки, мм</label><input id="railIns" type="number" value="8" min="0" max="60" step="1"></div>
+  <div class="row"><label>Зазор прутка до угла, мм</label><input id="cornerGap" type="number" value="12" min="0" max="80" step="1"></div>
+  <div class="row"><label>Смещение столбиков, мм</label><input id="postOff" type="number" value="50" min="0" max="150" step="5"></div>
 
   <h2>Полочки</h2>
   <table id="shTable"></table>
@@ -164,23 +168,23 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { buildSheets, toDXF, toSVG, zipSync } from './dxf.js';
+import { computeModel, railingLayout, HOLE, LUG } from './model.js';
 
 const $ = id => document.getElementById(id);
-const HOLE = { 4: 4.5, 5: 5.5, 6: 6.6 };
-const LUG = { w: 24, h: 28, hole: 9 };
 let selected = -1;
 
-// полочки: угол на кольце (град), глубина (внутрь по радиусу), ширина (тангенц.), число столбиков
+// полочки: угол на кольце (град), глубина (наружу по радиусу), ширина (тангенц.),
+// число столбиков НА СТОРОНУ (всего 4 стороны)
 let shelves = [
-  { ang: 45,  depth: 150, width: 150, posts: 6 },
-  { ang: 135, depth: 150, width: 150, posts: 6 },
-  { ang: 225, depth: 150, width: 150, posts: 6 },
-  { ang: 315, depth: 150, width: 150, posts: 6 },
+  { ang: 45,  depth: 200, width: 200, posts: 2 },
+  { ang: 135, depth: 200, width: 200, posts: 2 },
+  { ang: 225, depth: 200, width: 200, posts: 2 },
+  { ang: 315, depth: 200, width: 200, posts: 2 },
 ];
 
 // ---------------- Параметры и расчёт ----------------
 function params() {
-  const p = {
+  const base = {
     D: +$('D').value, H: +$('H').value, t: +$('t').value, n: Math.round(+$('n').value),
     gap: +$('gap').value, rho: +$('mat').value, mat: $('mat').selectedOptions[0].text,
     Lp: +$('Lp').value, e: +$('e').value, bolt: +$('bolt').value,
@@ -190,56 +194,15 @@ function params() {
     angDrop: +$('angDrop').value, angN: Math.max(1, Math.round(+$('angN').value)),
     angSpan: +$('angSpan').value,
     rodD: +$('rodD').value, shT: +$('shT').value,
-    postH: +$('postH').value,
+    postD: +$('postD').value, postH: +$('postH').value,
+    railIns: +$('railIns').value, cornerGap: +$('cornerGap').value,
+    postOff: +$('postOff').value,
   };
-  p.Ro = p.D / 2; p.Ri = p.Ro - p.t; p.Rm = p.Ro - p.t / 2;
-  p.dHole = HOLE[p.bolt];
-  p.Cm = Math.PI * 2 * p.Rm;
-  p.L = (p.Cm - p.n * p.gap) / p.n;
-  p.segAng = p.L / p.Rm;
-  p.pitch = 2 * Math.PI / p.n;
-  p.chord = 2 * p.Ro * Math.sin(p.segAng / 2);
-  p.sag = p.Ro * (1 - Math.cos(p.segAng / 2));
-  p.half = (p.Lp - p.gap) / 2;
-  p.holes = [p.e, p.half - p.e];
-  p.Rp = p.Ri - p.t / 2;
-  const kg = mm3 => mm3 * p.rho * 1e-9;
-
-  p.mSeg = kg(p.L * p.H * p.t);
-  const lugArea = p.lugs ? (LUG.w * (LUG.h - LUG.w / 2) + Math.PI * (LUG.w / 2) ** 2 / 2 - Math.PI * (LUG.hole / 2) ** 2) : 0;
-  p.mPlate = kg((p.Lp * p.H - 4 * Math.PI * (p.dHole / 2) ** 2 + lugArea) * p.t);
-  p.mRing = p.n * (p.mSeg + p.mPlate);
-
-  // уголок: Г-образный профиль из полосы t; стойка вниз + горизонтальная полка
-  p.angArea = (p.angDrop + p.angB - p.angT) * p.angT;   // мм² — сечение Г
-  p.mBracket = kg(p.angArea * p.angA);                  // объём = сечение × ширина полок
-
-  p.shelves = shelves.map(s => {
-    const o = { ...s };
-    o.ins = p.rodD / 2 + 3;                                  // отступ ограждения от края
-    o.perim = 2 * ((o.depth - 2 * o.ins) + (o.width - 2 * o.ins));
-    o.rodLen = o.posts * p.postH + 2 * o.perim;
-    o.brackets = p.angN;
-    o.mBracket = p.mBracket * p.angN;
-    o.mShelf = kg(o.depth * o.width * p.shT);
-    o.mRod = kg(o.rodLen * Math.PI * p.rodD ** 2 / 4);
-    o.mTotal = o.mBracket + o.mShelf + o.mRod;
-    o.a = o.ang * Math.PI / 180;
-    return o;
-  });
-  p.mTotal = p.mRing + p.shelves.reduce((a, s) => a + s.mTotal, 0);
-  p.bolts = p.n * 4 + p.shelves.length * (p.angN * 2 + 2);   // стыки + уголки + полочка
-  // окраска: кольцо (2 стороны + 2 кромки) + полочки (2 стороны + 4 кромки) + уголки
-  p.paintRing = (2 * p.Cm * p.H + 2 * p.Cm * p.t) / 1e6;
-  p.paintSh = p.shelves.reduce((a, s) =>
-    a + (2 * s.depth * s.width + 2 * (s.depth + s.width) * p.shT) / 1e6, 0);
-  p.angPerim = p.angDrop + p.angB + 2 * p.angT;             // периметр профиля Г, мм
-  p.paintAng = p.shelves.length * p.angN * p.angPerim * p.angA * 2 / 1e6;
-  p.paint = p.paintRing + p.paintSh + p.paintAng;
-  return p;
+  return computeModel(base, shelves);
 }
 
 const fmt = (v, d = 1) => v.toLocaleString('ru-RU', { minimumFractionDigits: d, maximumFractionDigits: d });
+const pyB0 = (ny, drop, ns) => ny + drop * ns;      // отметка низа полочки в сечении
 
 function renderTables(p) {
   const rows = [
@@ -252,6 +215,7 @@ function renderTables(p) {
     ['Масса уголка', fmt(p.mBracket, 3) + ' кг × ' + (p.shelves.length * p.angN)],
     ['Масса полочки', p.shelves.length ? fmt(p.shelves[0].mShelf, 3) + ' кг × ' + p.shelves.length : '—'],
     ['Пруток на полочку', p.shelves.length ? fmt(p.shelves[0].rodLen / 1000, 2) + ' м × ' + p.shelves.length : '—'],
+    ['Столбиков на полочку', p.shelves.length ? p.shelves[0].postsTotal + ' шт × ' + p.shelves.length : '—'],
     ['Масса изделия', fmt(p.mTotal, 2) + ' кг'],
     ['Крепёж всего', p.bolts + ' шт M' + p.bolt],
     ['Площадь покраски', fmt(p.paint, 3) + ' м² (кольцо ' + fmt(p.paintRing, 3) + ')'],
@@ -264,12 +228,14 @@ function renderTables(p) {
     ['3', `Уголок ${p.angT}×${p.angA}, стойка ${p.angDrop} мм (Г, перевёрнутая)`, p.shelves.length * p.angN, p.mBracket],
     ['4', `Полочка плоская, ${p.shT} мм, размеры по табл.`, p.shelves.length, p.shelves.length ? p.shelves[0].mShelf : 0],
     ['5', `Пруток ограждения Ø${p.rodD}, L=… (табл. полочек)`, p.shelves.length, p.shelves.length ? p.shelves[0].mRod : 0],
-    ['6', `Винт M${p.bolt}×${2 * p.t + 8} DIN 7985`, p.bolts, null],
-    ['7', `Гайка M${p.bolt} DIN 985 (самоконтр.)`, p.bolts, null],
-    ['8', `Шайба ${p.bolt} DIN 125`, p.bolts * 2, null],
+    ['6', `Столбик Ø${p.postD}×${p.postH}`, p.shelves.length ? p.shelves[0].postsTotal * p.shelves.length : 0, null],
+    ['7', `Пистон Ø5×3 (приваренный)`, p.shelves.length * p.angN, null],
+    ['8', `Винт M${p.bolt}×${2 * p.t + 8} DIN 7985`, p.bolts, null],
+    ['9', `Гайка M${p.bolt} DIN 985 (самоконтр.)`, p.bolts, null],
+    ['10', `Шайба ${p.bolt} DIN 125`, p.bolts * 2, null],
   ];
-  if (p.lugs && p.chains) spec.push(['9', `Цепь подвеса ~${fmt(chainLen(p), 0)} мм`, p.n, null],
-    ['10', 'Кольцо-сборник Ø40 + крюк', 1, null]);
+  if (p.lugs && p.chains) spec.push(['11', `Цепь подвеса ~${fmt(chainLen(p), 0)} мм`, p.n, null],
+    ['12', 'Кольцо-сборник Ø40 + крюк', 1, null]);
   $('spec').innerHTML = '<tr><th>Поз.</th><th>Наименование</th><th>Кол.</th><th>кг</th></tr>' +
     spec.map(s => `<tr><td>${s[0]}</td><td>${s[1]}</td><td class="n">${s[2]}</td><td class="n">${s[3] ? fmt(s[3] * s[2], 2) : '—'}</td></tr>`).join('');
 
@@ -285,10 +251,10 @@ function renderTables(p) {
   $('warn').innerHTML = w.join('<br>');
 
   $('tech').innerHTML = `Кольцо: ${p.mat}, полоса ${p.t}×${p.H}; вальцовка по R${fmt(p.Ro, 0)} (наружн.).<br>
-    Уголок: стойка снаружи кольца, выпуск ${p.angDrop} мм вниз, горизонтальная полка ${p.angB} мм внутрь под полочку; гнуть по R${fmt(p.angT * 1.5, 1)} мм. Крепление стойки к кольцу 2×M${p.bolt} сквозь полосу.<br>
-    Полочка: лист/полоса ${p.shT} мм, крепление 2×M${p.bolt} к горизонтальной полке уголка.<br>
-    Ограждение: пруток Ø${p.rodD}, столбики приварены к полочке, пруток загибается/приваривается по месту.<br>
-    Отверстия сверлить в сборе. Покрытие: порошок RAL 9005 по фосфатированию. Откл. ±0,5 мм.`;
+    Уголок: стойка снаружи кольца, выпуск ${p.angDrop} мм вниз, горизонтальная полка ${p.angB} мм наружу под полочку; гнуть по R${fmt(p.angT * 1.5, 1)} мм. Крепление стойки к кольцу 2×M${p.bolt} сквозь полосу.<br>
+    Полочка: лист ${p.shT} мм; отверстия под болты — по осям пистонов, от кромки со стороны кольца ${p.angT + Math.round(p.angB / 2)} мм. Крепление 1×M${p.bolt} на уголок через пистон Ø5×3.<br>
+    Ограждение: 4 прутка Ø${p.rodD} по осям сторон квадрата ${p.shelves[0] ? p.shelves[0].axisD : 184}×${p.shelves[0] ? p.shelves[0].axisW : 184} мм (отступ ${p.railIns} мм от кромки); столбики Ø${p.postD}×${p.postH} — ${p.shelves[0] ? p.shelves[0].postsTotal : 8} шт, ±${p.postOff} мм от середины стороны. Пруток лежит на столбиках.<br>
+    Сварка — ГОСТ Р 52916-2008, катет 3 мм. Покрытие: порошок RAL 9005 по фосфатированию. Откл. ±0,5 мм.`;
 }
 
 function chainLen(p) {
@@ -299,7 +265,7 @@ function chainLen(p) {
 // ---------------- Таблица полочек ----------------
 function renderShelfTable() {
   const t = $('shTable');
-  let html = '<tr><th>№</th><th>Угол°</th><th>Глуб.</th><th>Ширина</th><th>Столб.</th><th></th></tr>';
+  let html = '<tr><th>№</th><th>Угол°</th><th>Глуб.</th><th>Ширина</th><th>Столб./стор.</th><th></th></tr>';
   shelves.forEach((s, i) => {
     html += `<tr data-i="${i}"><td>${i + 1}</td>` +
       `<td><input type="number" data-k="ang" value="${s.ang}" step="5"></td>` +
@@ -324,7 +290,7 @@ $('addSh').onclick = () => {
   const used = shelves.map(s => s.ang);
   let ang = 0;
   for (let a = 0; a < 360; a += 15) if (!used.some(u => Math.abs(u - a) < 20)) { ang = a; break; }
-  shelves.push({ ang, depth: 150, width: 150, posts: 6 });
+  shelves.push({ ang, depth: 200, width: 200, posts: 2 });
   renderShelfTable(); build();
 };
 $('spreadSh').onclick = () => {
@@ -411,22 +377,6 @@ function rodBetween(a, b, r, mat) {
 }
 
 // точки по периметру прямоугольника, равномерно по длине
-function perimeterPoints(xA, xB, zA, zB, n) {
-  const pts = [[xA, zA], [xA, zB], [xB, zB], [xB, zA]];
-  const lens = [
-    Math.abs(zB - zA), Math.abs(xB - xA), Math.abs(zB - zA), Math.abs(xB - xA)
-  ];
-  const total = lens.reduce((a, b) => a + b, 0);
-  const out = [];
-  for (let i = 0; i < n; i++) {
-    let d = (i / n) * total, k = 0;
-    while (k < 3 && d > lens[k]) { d -= lens[k]; k++; }
-    const t = lens[k] ? d / lens[k] : 0;
-    const a = pts[k], b = pts[(k + 1) % 4];
-    out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
-  }
-  return out;
-}
 
 function build() {
   const p = params();
@@ -486,15 +436,8 @@ function build() {
     const shelfBottom = -Drop;             // низ полочки
     const hLegY = shelfBottom - t;         // центр горизонтальной полки уголка
 
-    // число уголков на полочку и их шаг поперёк
-    const nBr = Math.max(1, p.angN);
-    let brZ;
-    if (nBr === 1) brZ = [0];
-    else {
-      const step = Math.min(p.angSpan, shD - A);
-      brZ = [];
-      for (let i = 0; i < nBr; i++) brZ.push(-step * (nBr - 1) / 2 + i * step);
-    }
+    // число уголков на полочку и их шаг поперёк (из общей модели)
+    const brZ = s.bracketZ;
     brZ.forEach(dz => {
       // вертикальная стойка уголка — снаружи кольца, идёт вниз
       const vLeg = new THREE.Mesh(new THREE.BoxGeometry(t, Drop, A), matBracket);
@@ -523,39 +466,41 @@ function build() {
     shelf.position.set(xOut + t + shW / 2, shelfBottom + shT / 2, 0);
     shelf.castShadow = shelf.receiveShadow = true; g.add(shelf);
 
-    // болты полочки к горизонтальным полкам уголков (по 2 на уголок)
-    brZ.forEach(dz => {
-      for (const dx of [xOut + t + 8, xOut + t + B - 8]) {
-        const head = new THREE.Mesh(new THREE.CylinderGeometry(p.bolt * 0.9, p.bolt * 0.9, 3, 16), matBolt);
-        head.position.set(dx, shelfBottom + shT + 1.5, dz);
-        const stud = new THREE.Mesh(new THREE.CylinderGeometry(p.bolt / 2, p.bolt / 2, t + shT + 6, 12), matBolt);
-        stud.position.set(dx, hLegY, dz);
-        const nut = new THREE.Mesh(new THREE.CylinderGeometry(p.bolt * 0.95, p.bolt * 0.95, p.bolt * 0.8, 6), matBolt);
-        nut.position.set(dx, hLegY - t - p.bolt * 0.4, dz);
-        g.add(head, stud, nut);
-      }
-    });
+    // болты полочки к горизонтальным полкам уголков — по одному на уголок
+    for (const ps of s.boltPts) {
+      const dx = xOut + t + ps.x, dz = ps.z;
+      const head = new THREE.Mesh(new THREE.CylinderGeometry(p.bolt * 0.9, p.bolt * 0.9, 3, 16), matBolt);
+      head.position.set(dx, shelfBottom + shT + 1.5, dz);
+      const stud = new THREE.Mesh(new THREE.CylinderGeometry(p.bolt / 2, p.bolt / 2, t + shT + 6, 12), matBolt);
+      stud.position.set(dx, hLegY, dz);
+      const nut = new THREE.Mesh(new THREE.CylinderGeometry(p.bolt * 0.95, p.bolt * 0.95, p.bolt * 0.8, 6), matBolt);
+      nut.position.set(dx, hLegY - t - p.bolt * 0.4, dz);
+      g.add(head, stud, nut);
+    }
 
-    // ограждение: столбики + 2 прутка (верхний и средний)
-    const r = p.rodD / 2, base = shelfBottom + shT;
-    const xA = xOut + t + s.ins, xB = xA + (s.depth - 2 * s.ins);
-    const zA = -(s.width / 2 - s.ins), zB = s.width / 2 - s.ins;
-    const N = Math.max(0, Math.round(s.posts));
-    if (N > 0) {
-      const pts = perimeterPoints(xA, xB, zA, zB, N);
-      pts.forEach(([px, pz]) => {
-        const post = new THREE.Mesh(new THREE.CylinderGeometry(r, r, p.postH, 12), matRod);
-        post.position.set(px, base + p.postH / 2, pz); post.castShadow = true; g.add(post);
-      });
-      for (const hy of [p.postH, p.postH / 2]) {
-        for (let i = 0; i < pts.length; i++) {
-          const a = pts[i], b = pts[(i + 1) % pts.length];
-          const m = rodBetween(
-            new THREE.Vector3(a[0], base + hy, a[1]),
-            new THREE.Vector3(b[0], base + hy, b[1]), r, matRod);
-          if (m) g.add(m);
-        }
-      }
+    // приваренные подкладки Ø5×3 под пластиной полочки — под каждым столбиком
+    for (const ps of s.pads) {
+      const pis = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.5, 3, 16), matRod);
+      pis.position.set(xOut + t + ps.x, shelfBottom - 1.5, ps.z);
+      pis.castShadow = true; g.add(pis);
+    }
+
+    // ограждение: 4 прутка по сторонам осевого квадрата + столбики
+    // (схема — как в «цветочный подвес.dwg»: прутки не доходят до углов,
+    //  пруток лежит сверху столбиков, один уровень)
+    const base = shelfBottom + shT;
+    const lay = railingLayout(s);
+    const rRail = p.rodD / 2, rPost = p.postD / 2;
+    for (const pt of lay.posts) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(rPost, rPost, p.postH, 12), matRod);
+      post.position.set(xOut + t + pt.x, base + p.postH / 2, pt.z);
+      post.castShadow = true; g.add(post);
+    }
+    for (const rl of lay.rails) {
+      const a = new THREE.Vector3(xOut + t + (rl.dir === 'z' ? rl.at : rl.a), base + p.railH, rl.dir === 'z' ? rl.a : rl.at);
+      const b = new THREE.Vector3(xOut + t + (rl.dir === 'z' ? rl.at : rl.b), base + p.railH, rl.dir === 'z' ? rl.b : rl.at);
+      const m = rodBetween(a, b, rRail, matRod);
+      if (m) g.add(m);
     }
 
     // условное растение на полочке
@@ -680,22 +625,30 @@ function drawSVG(p) {
     const Rb = (p.Ro + p.angT / 2) * k, Rc = (p.Ro + p.angT + sh.depth / 2) * k;
     const tx = cx + Rc * Math.cos(a), ty = cy - Rc * Math.sin(a);
     const rot = -a * 180 / Math.PI;
-    s += `<g transform="translate(${tx} ${ty}) rotate(${rot})">` +
-      `<rect x="${-sh.depth * k / 2}" y="${-sh.width * k / 2}" width="${sh.depth * k}" height="${sh.width * k}" fill="#c9b487" stroke="${ink}" stroke-width="0.8"/>` +
-      `<rect x="${-sh.depth * k / 2 + sh.ins * k}" y="${-sh.width * k / 2 + sh.ins * k}" width="${(sh.depth - 2 * sh.ins) * k}" height="${(sh.width - 2 * sh.ins) * k}" fill="none" stroke="#1b6fb0" stroke-width="0.8" stroke-dasharray="4 2"/></g>`;
-    const lr = ro + p.angT * k + sh.depth * k + 22;
-    const lx = cx + lr * Math.cos(a), ly = cy - lr * Math.sin(a);
-    s += `<circle cx="${lx}" cy="${ly}" r="10" fill="#e0a040" stroke="${ink}" stroke-width="0.7"/><text x="${lx}" y="${ly + 4}" text-anchor="middle">${idx + 1}</text>`;
-    // стойки уголков — поперёк, снаружи от кольца
-    const nBr = Math.max(1, p.angN);
-    let brZ;
-    if (nBr === 1) brZ = [0];
-    else {
-      const step = Math.min(p.angSpan, sh.width - p.angA);
-      brZ = [];
-      for (let i = 0; i < nBr; i++) brZ.push(-step * (nBr - 1) / 2 + i * step);
+    const lay = railingLayout(sh);
+    // локальные координаты полочки: X — наружу от кольца, Y — поперёк
+    const lx = x => (x - sh.depth / 2) * k, ly = z => -z * k;
+    let g = `<g transform="translate(${tx} ${ty}) rotate(${rot})">` +
+      `<rect x="${-sh.depth * k / 2}" y="${-sh.width * k / 2}" width="${sh.depth * k}" height="${sh.width * k}" fill="#c9b487" stroke="${ink}" stroke-width="0.8"/>`;
+    // 4 прутка ограждения — на осях сторон осевого квадрата
+    for (const rl of lay.rails) {
+      const ax = rl.dir === 'z' ? lx(rl.at) : lx(rl.a);
+      const ay = rl.dir === 'z' ? ly(rl.a) : ly(rl.at);
+      const bx = rl.dir === 'z' ? lx(rl.at) : lx(rl.b);
+      const by = rl.dir === 'z' ? ly(rl.b) : ly(rl.at);
+      g += `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="#c62828" stroke-width="${Math.max(1, p.rodD * k)}" stroke-linecap="round"/>`;
     }
-    brZ.forEach(dz => {
+    // столбики
+    for (const pt of lay.posts) {
+      g += `<circle cx="${lx(pt.x)}" cy="${ly(pt.z)}" r="${Math.max(0.8, p.postD / 2 * k)}" fill="#fff" stroke="${ink}" stroke-width="0.6"/>`;
+    }
+    g += `</g>`;
+    s += g;
+    const lr = ro + p.angT * k + sh.depth * k + 22;
+    const lx2 = cx + lr * Math.cos(a), ly2 = cy - lr * Math.sin(a);
+    s += `<circle cx="${lx2}" cy="${ly2}" r="10" fill="#e0a040" stroke="${ink}" stroke-width="0.7"/><text x="${lx2}" y="${ly2 + 4}" text-anchor="middle">${idx + 1}</text>`;
+    // стойки уголков — поперёк, снаружи от кольца
+    sh.bracketZ.forEach(dz => {
       const bx = cx + Rb * Math.cos(a), by = cy - Rb * Math.sin(a);
       s += `<g transform="translate(${bx} ${by}) rotate(${rot})"><rect x="${-p.angT * k / 2}" y="${dz * k - p.angA * k / 2}" width="${p.angT * k}" height="${p.angA * k}" fill="#5a6069" stroke="${ink}" stroke-width="0.6"/>` +
         `<rect x="${p.angT * k / 2}" y="${dz * k - p.angT * k / 2}" width="${p.angB * k}" height="${p.angT * k}" fill="#7a828c" stroke="${ink}" stroke-width="0.5"/></g>`;
@@ -756,21 +709,36 @@ function drawSVG(p) {
     const sh = p.shelves[0];
     const gx = 620, gy = 560, gk = Math.min(300 / sh.depth, 300 / sh.width, 2);
     const gw = sh.depth * gk, gd = sh.width * gk;
+    const lay = railingLayout(sh);
     s += title(gx + gw / 2, gy - 40, `Поз. 4 — Полочка с ограждением, план (${p.shelves.length} шт.) М ${fmt(gk, 0)}:1`);
     s += `<rect x="${gx}" y="${gy}" width="${gw}" height="${gd}" fill="#e7ddc7" stroke="${ink}" stroke-width="1.2"/>`;
-    const ax = gx + sh.ins * gk, ay = gy + sh.ins * gk;
-    const aw = (sh.depth - 2 * sh.ins) * gk, ah = (sh.width - 2 * sh.ins) * gk;
-    s += `<rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" fill="none" stroke="#1b6fb0" stroke-width="1" stroke-dasharray="5 3"/>`;
-    const pts = perimeterPoints(ax, ax + aw, ay, ay + ah, sh.posts);
-    pts.forEach(([x, y]) => s += `<circle cx="${x}" cy="${y}" r="${p.rodD / 2 * gk}" fill="#fff" stroke="${ink}"/>`);
+    // 4 прутка Ø — на осях сторон осевого квадрата, не доходят до углов
+    const RX = x => gx + x * gk, RY = z => gy + (sh.width / 2 - z) * gk;
+    for (const rl of lay.rails) {
+      const ax = rl.dir === 'z' ? RX(rl.at) : RX(rl.a);
+      const ay = rl.dir === 'z' ? RY(rl.a) : RY(rl.at);
+      const bx = rl.dir === 'z' ? RX(rl.at) : RX(rl.b);
+      const by = rl.dir === 'z' ? RY(rl.b) : RY(rl.at);
+      s += `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="#c62828" stroke-width="${p.rodD * gk}" stroke-linecap="round"/>`;
+    }
+    // столбики Ø — на прутках
+    for (const pt of lay.posts) {
+      s += `<circle cx="${RX(pt.x)}" cy="${RY(pt.z)}" r="${p.postD / 2 * gk}" fill="#fff" stroke="${ink}" stroke-width="1"/>`;
+    }
+    // отверстия под болты полочки (по одному на уголок)
+    for (const ps of sh.boltPts) {
+      s += `<circle cx="${RX(ps.x)}" cy="${RY(ps.z)}" r="${p.dHole / 2 * gk}" fill="#fff" stroke="${ink}"/>`;
+    }
+    // отступ прутков от кромки
     s += dim(gx, gy + gd + 24, gx + gw, gy + gd + 24, sh.depth, gx + gw / 2, gy + gd + 18);
     s += ext(gx, gy + gd, gx, gy + gd + 30) + ext(gx + gw, gy + gd, gx + gw, gy + gd + 30);
     s += dim(gx + gw + 26, gy, gx + gw + 26, gy + gd, sh.width, gx + gw + 40, gy + gd / 2 + 4, -90);
     s += ext(gx + gw, gy, gx + gw + 32, gy) + ext(gx + gw, gy + gd, gx + gw + 32, gy + gd);
-    s += `<text x="${gx}" y="${gy + gd + 44}">Пруток Ø${p.rodD} — столбики ${sh.posts} шт × ${p.postH} мм, пруток по периметру (верх + середина).</text>`;
-    s += `<text x="${gx}" y="${gy + gd + 60}">Полочка из полосы/листа ${p.shT} мм. Длина прутка на полочку ${fmt(sh.rodLen / 1000, 2)} м.</text>`;
+    s += dim(gx, gy - 12, RX(sh.ins), gy - 12, sh.ins, (gx + RX(sh.ins)) / 2, gy - 16);
+    s += `<text x="${gx}" y="${gy + gd + 44}">Пруток Ø${p.rodD} — 2 шт по ${sh.railLenZ} мм и 2 шт по ${sh.railLenX} мм; столбики Ø${p.postD}×${p.postH} — ${sh.postsTotal} шт.</text>`;
+    s += `<text x="${gx}" y="${gy + gd + 60}">Полочка ${sh.depth}×${sh.width}×${p.shT} мм. Пруток на полочку ${fmt(sh.rodLen / 1000, 2)} м.</text>`;
     let tt = `<text x="${gx}" y="${gy + gd + 80}" font-size="12" font-weight="bold">Размеры полочек</text>`;
-    tt += `<text x="${gx}" y="${gy + gd + 98}" fill="#666">№  Угол  Глуб.  Ширина  Столб.</text>`;
+    tt += `<text x="${gx}" y="${gy + gd + 98}" fill="#666">№  Угол  Глуб.  Ширина  Столб./стор.</text>`;
     p.shelves.forEach((q, i) => {
       tt += `<text x="${gx}" y="${gy + gd + 116 + i * 16}">${i + 1}   ${fmt(q.ang, 0)}°   ${q.depth}   ${q.width}   ${q.posts}</text>`;
     });
@@ -796,13 +764,17 @@ function drawSVG(p) {
     s += `<rect x="${vx}" y="${shY}" width="${shW}" height="${p.shT * ns}" fill="#c9b487" stroke="${ink}"/>`;
     if (p.shelves.length) {
       const sh = p.shelves[0], base = -drop;
-      const pxA = vx + sh.ins * ns, pxB = vx + (sh.depth - sh.ins) * ns;
-      const pyA = SY(base + p.postH), pyB = SY(base);
-      s += `<rect x="${pxA}" y="${pyA}" width="${pxB - pxA}" height="${pyB - pyA}" fill="none" stroke="#1b6fb0" stroke-width="0.8" stroke-dasharray="4 2"/>`;
-      const pts = perimeterPoints(pxA, pxB, pyA, pyB, sh.posts);
-      pts.forEach(([x, y]) => s += `<circle cx="${x}" cy="${y}" r="${p.rodD / 2 * ns}" fill="#fff" stroke="${ink}"/>`);
-      s += dim(pxB + 30, pyA, pxB + 30, pyB, p.postH, pxB + 44, (pyA + pyB) / 2 + 4, -90);
-      s += dim(vx, pyB + 34, vx + shW, pyB + 34, sh.depth, vx + shW / 2, pyB + 28);
+      const lay = railingLayout(sh);
+      // столбики и пруток в разрезе (вид с торца)
+      const PX = x => vx + x * ns;
+      for (const pt of lay.posts) {
+        s += `<circle cx="${PX(pt.x)}" cy="${SY(base + p.postH / 2)}" r="${p.postD / 2 * ns}" fill="#fff" stroke="${ink}"/>`;
+      }
+      const railY = SY(base + p.railH);
+      s += `<circle cx="${PX(sh.ins)}" cy="${railY}" r="${p.rodD / 2 * ns}" fill="#fff" stroke="#c62828" stroke-width="1.4"/>`;
+      s += `<circle cx="${PX(sh.depth - sh.ins)}" cy="${railY}" r="${p.rodD / 2 * ns}" fill="#fff" stroke="#c62828" stroke-width="1.4"/>`;
+      s += dim(PX(sh.ins) + 34, railY, PX(sh.ins) + 34, SY(base), p.postH, PX(sh.ins) + 48, (railY + SY(base)) / 2 + 4, -90);
+      s += dim(vx, pyB0(ny, drop, ns) + 34, vx + shW, pyB0(ny, drop, ns) + 34, sh.depth, vx + shW / 2, pyB0(ny, drop, ns) + 28);
       s += dim(hx, ny + drop * ns + p.angT * ns + 34, hx + p.angB * ns, ny + drop * ns + p.angT * ns + 34, p.angB, hx + p.angB * ns / 2, ny + drop * ns + p.angT * ns + 28);
     }
     s += dim(XR - 14, ny, XR - 14, ny + p.H * ns, p.H, XR - 28, ny + p.H * ns / 2 + 4, -90);

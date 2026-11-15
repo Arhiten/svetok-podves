@@ -5,6 +5,8 @@
    - листы A3 (420×297), первый угол — миллиметры
    ================================================================ */
 
+import { railingLayout } from './model.js';
+
 const CP1251 = (() => {
   const m = new Map();
   for (let i = 0x410; i <= 0x44F; i++) m.set(i, 0xC0 + (i - 0x410)); // А..я
@@ -388,11 +390,7 @@ function sheetAssembly(p) {
   for (const sh of p.shelves) {
     const a = toPaper(sh.a);
     const rr = Ro + p.angT * k / 2;
-    const nBr = Math.max(1, p.angN);
-    let brZ;
-    if (nBr === 1) brZ = [0];
-    else { const st = Math.min(p.angSpan, sh.width - p.angA); brZ = []; for (let i = 0; i < nBr; i++) brZ.push(-st * (nBr - 1) / 2 + i * st); }
-    for (const dz of brZ) {
+    for (const dz of sh.bracketZ) {
       const ox = cx + Math.cos(a) * rr - Math.sin(a) * dz * k;
       const oy = cy + Math.sin(a) * rr + Math.cos(a) * dz * k;
       dr.rectRot(ox, oy, p.angT * k, p.angA * k, a, 'КОНТУР');
@@ -405,13 +403,23 @@ function sheetAssembly(p) {
     const scx = cx + Math.cos(a) * (Ro + p.angT * k + sh.depth * k / 2);
     const scy = cy + Math.sin(a) * (Ro + p.angT * k + sh.depth * k / 2);
     dr.rectRot(scx, scy, sh.depth * k, sh.width * k, a, 'КОНТУР');
-    const ins = sh.ins * k;
-    dr.rectRot(scx, scy, (sh.depth - 2 * ins) * k, (sh.width - 2 * ins) * k, a, 'ОСЕВАЯ');
+    // 4 прутка ограждения — на осях сторон осевого квадрата
+    const lay = railingLayout(sh);
+    const lx = x => (x - sh.depth / 2) * k, ly = z => -z * k;
+    for (const rl of lay.rails) {
+      const ax = rl.dir === 'z' ? lx(rl.at) : lx(rl.a);
+      const ay = rl.dir === 'z' ? ly(rl.a) : ly(rl.at);
+      const bx = rl.dir === 'z' ? lx(rl.at) : lx(rl.b);
+      const by = rl.dir === 'z' ? ly(rl.b) : ly(rl.at);
+      const rx = Ro + p.angT * k;
+      dr.line(cx + Math.cos(a) * rx - Math.sin(a) * ax, cy + Math.sin(a) * rx + Math.cos(a) * ay,
+              cx + Math.cos(a) * rx - Math.sin(a) * bx, cy + Math.sin(a) * rx + Math.cos(a) * by, 'КОНТУР');
+    }
     // номер полочки — снаружи, на радиусе края полки
     const lr = Ro + p.angT * k + sh.depth * k + 9;
-    const lx = cx + lr * Math.cos(a), ly = cy + lr * Math.sin(a);
-    dr.circle(lx, ly, 5.5, 'ТЕКСТ');
-    dr.text(lx, ly + 1.4, 4, String(p.shelves.indexOf(sh) + 1), 'ТЕКСТ', { align: 'c' });
+    const nx = cx + lr * Math.cos(a), ny = cy + lr * Math.sin(a);
+    dr.circle(nx, ny, 5.5, 'ТЕКСТ');
+    dr.text(nx, ny + 1.4, 4, String(p.shelves.indexOf(sh) + 1), 'ТЕКСТ', { align: 'c' });
   }
   dr.dimDia(cx, cy, Ro, 45, 'Ø' + p.D);
   dr.text(cx, cy - Ro - 16, 3.4, `Кольцо Ø${p.D}×${p.H} мм, ${p.n} сегм., зазор ${p.gap} мм`, 'ТЕКСТ', { align: 'c' });
@@ -425,15 +433,24 @@ function sheetAssembly(p) {
   const sh0 = p.shelves[0];
   const drop = p.angDrop * k, shd = sh0.depth * k, shT = p.shT * k;
   const legX = fx + hw;                 // наружная поверхность кольца
-  const nBr = Math.max(1, p.angN);
-  let brZ;
-  if (nBr === 1) brZ = [0];
-  else { const st = Math.min(p.angSpan, sh0.width - p.angA); brZ = []; for (let i = 0; i < nBr; i++) brZ.push(-st * (nBr - 1) / 2 + i * st); }
-  for (const dz of brZ) {
+  for (const dz of sh0.bracketZ) {
     dr.rect(legX + dz * k, fy - drop, p.angT * k, drop, 'КОНТУР');
     dr.rect(legX + dz * k, fy - drop - p.angT * k, p.angB * k, p.angT * k, 'КОНТУР');
   }
   dr.rect(legX + p.angT * k, fy - drop - p.angT * k - shT, shd, shT, 'КОНТУР');
+  // ограждение: столбики и пруток (вид с торца полочки)
+  {
+    const lay0 = railingLayout(sh0);
+    const baseY = fy - drop - p.angT * k - shT;
+    for (const pt of lay0.posts) {
+      const px = legX + p.angT * k + pt.x * k;
+      dr.circle(px, baseY - p.postH * k / 2, p.postD / 2 * k, 'КОНТУР');
+    }
+    const railY = baseY - p.railH * k;
+    for (const ax of [sh0.ins, sh0.depth - sh0.ins]) {
+      dr.circle(legX + p.angT * k + ax * k, railY, p.rodD / 2 * k, 'КОНТУР');
+    }
+  }
   dr.dimH(fx - hw, fy, fx + hw, fy, fy + p.H * k + 12, 'Ø' + p.D);
   dr.dimV(fx - hw - 12, fy, fx - hw - 12, fy + p.H * k, fx - hw - 12, p.H + '', { side: -1 });
   dr.dimV(legX, fy, legX, fy - drop, legX + 30, p.angDrop + '', { side: 1 });
@@ -449,7 +466,7 @@ function sheetAssembly(p) {
     `Стыки: накладка ${p.t}×${p.H}×${p.Lp} мм изнутри, ${p.n * 4} шт М${p.bolt}.`,
     `Уголок ${p.angT}×${p.angA}, стойка ${p.angDrop} мм снаружи кольца.`,
     `Полочка ${p.shT} мм, ${p.shelves.length} шт, размеры по ведомости.`,
-    `Ограждение: пруток Ø${p.rodD}, столбики ${p.postH} мм.`,
+    `Ограждение: пруток Ø${p.rodD}, столбики Ø${p.postD}×${p.postH} мм.`,
     `Неуказанные отклонения ±0,5 мм. Покрытие RAL 9005.`,
   ], 175);
 
@@ -602,60 +619,68 @@ function sheetPolochka(p) {
   const sh = p.shelves[0];
   const k = 0.5;
   const x0 = 45, y0 = 165, w = sh.depth * k, h = sh.width * k;
-  const brZ = bracketOffsets(p, sh);
+  const lay = railingLayout(sh);
+  const brZ = sh.bracketZ;
 
-  // план
+  // план: пластина + 4 прутка + столбики + отверстия под пистоны
   dr.rect(x0, y0, w, h, 'КОНТУР');
-  const ins = sh.ins * k;
-  dr.rect(x0 + ins, y0 + ins, w - 2 * ins, h - 2 * ins, 'ОСЕВАЯ');
+  const PX = x => x0 + x * k, PY = z => y0 + (sh.width / 2 - z) * k;
+  for (const rl of lay.rails) {
+    const ax = rl.dir === 'z' ? PX(rl.at) : PX(rl.a);
+    const ay = rl.dir === 'z' ? PY(rl.a) : PY(rl.at);
+    const bx = rl.dir === 'z' ? PX(rl.at) : PX(rl.b);
+    const by = rl.dir === 'z' ? PY(rl.b) : PY(rl.at);
+    dr.line(ax, ay, bx, by, 'КОНТУР');
+  }
+  for (const pt of lay.posts) {
+    dr.circle(PX(pt.x), PY(pt.z), p.postD / 2 * k, 'ОТВЕРСТИЯ');
+  }
   const hr = p.dHole / 2 * k;
-  brZ.forEach(dz => {
-    const bx = x0 + (p.angB * k) + 8;
-    dr.circle(bx, y0 + h / 2 + dz * k, hr, 'ОТВЕРСТИЯ');
-    dr.centerMark(bx, y0 + h / 2 + dz * k, hr, 'ОСЕВАЯ');
-  });
+  for (const ps of sh.boltPts) {
+    dr.circle(PX(ps.x), PY(ps.z), hr, 'ОТВЕРСТИЯ');
+    dr.centerMark(PX(ps.x), PY(ps.z), hr, 'ОСЕВАЯ');
+  }
   dr.dimH(x0, y0, x0 + w, y0, y0 - 14, sh.depth + '');
   dr.dimV(x0 + w, y0, x0 + w, y0 + h, x0 + w + 14, sh.width + '');
+  // отступ прутков от кромки
+  dr.dimH(x0, y0 + h, PX(sh.ins), y0 + h, y0 + h + 10, sh.ins + '');
+  // расстояние между осями уголков
+  if (brZ.length > 1) {
+    dr.dimV(PX(sh.boltX), PY(brZ[0]), PX(sh.boltX), PY(brZ[brZ.length - 1]), PX(sh.boltX) + 12,
+      (brZ[brZ.length - 1] - brZ[0]).toFixed(0), { side: 1 });
+  }
 
-  // развёртка
+  // развёртка (только контур и отверстия)
   const x1 = 190, y1 = 165;
   dr.rect(x1, y1, w, h, 'КОНТУР');
-  brZ.forEach(dz => {
-    const bx = x1 + (p.angB * k) + 8;
-    dr.circle(bx, y1 + h / 2 + dz * k, hr, 'ОТВЕРСТИЯ');
-    dr.centerMark(bx, y1 + h / 2 + dz * k, hr, 'ОСЕВАЯ');
-  });
+  for (const ps of sh.boltPts) {
+    const bx = x1 + ps.x * k, by = y1 + (sh.width / 2 - ps.z) * k;
+    dr.circle(bx, by, hr, 'ОТВЕРСТИЯ');
+    dr.centerMark(bx, by, hr, 'ОСЕВАЯ');
+  }
   dr.dimH(x1, y1, x1 + w, y1, y1 - 14, sh.depth + '');
   dr.dimV(x1 + w, y1, x1 + w, y1 + h, x1 + w + 14, sh.width + '');
   dr.text(x0, y0 + h + 12, 3.6, 'Поз. 4 — Полочка (' + p.shelves.length + ' шт.), М 1:2', 'ТЕКСТ');
-  dr.text(x0, y0 + h + 18, 3, 'Слева — план, справа — развёртка (отв. насквозь)', 'ТЕКСТ');
+  dr.text(x0, y0 + h + 18, 3, 'Слева — план с ограждением, справа — развёртка (отв. насквозь)', 'ТЕКСТ');
 
   // таблица отверстий
   const ty = 96;
   dr.text(x0, ty, 3.2, 'Координаты отверстий от края (мм):', 'ТЕКСТ');
-  dr.text(x0, ty - 6, 3, `X = ${(p.angT + p.angB + 8).toFixed(0)} мм от кромки со стороны кольца; Y = ±${(p.angSpan / 2).toFixed(0)} мм (${brZ.length} шт.)`, 'ТЕКСТ');
-  dr.text(x0, ty - 12, 3, `Ø${p.dHole} под М${p.bolt}, ${brZ.length * 2} отв. на полочку`, 'ТЕКСТ');
+  dr.text(x0, ty - 6, 3, `X = ${sh.boltX.toFixed(0)} мм от кромки со стороны кольца; Y = ${brZ.map(z => z.toFixed(0)).join(' и ')} мм (${brZ.length} шт.)`, 'ТЕКСТ');
+  dr.text(x0, ty - 12, 3, `Ø${p.dHole} под М${p.bolt}, ${brZ.length} отв. на полочку (по одному на уголок)`, 'ТЕКСТ');
 
   techBlock(dr, 232, 252, [
     `Полочка плоская, ${p.shelves.length} шт.`,
-    `Материал: ${p.mat}, полоса/лист ${p.shT} мм.`,
+    `Материал: ${p.mat}, лист ${p.shT} мм.`,
     `Размеры — по ведомости (лист П7), мм:`,
-    ...p.shelves.map((q, i) => `  №${i + 1}: ${q.depth}×${q.width}, угол ${q.ang.toFixed(0)}°, столбиков ${q.posts}.`),
-    `Ограждение — пруток Ø${p.rodD} (лист П6).`,
+    ...p.shelves.map((q, i) => `  №${i + 1}: ${q.depth}×${q.width}, угол ${q.ang.toFixed(0)}°, столбиков/стор. ${q.posts}.`),
+    `Ограждение — пруток Ø${p.rodD}, столбики Ø${p.postD} (лист П6).`,
     `Кромки притупить. Покрытие RAL 9005.`,
   ], 175);
   sheetFrame(dr, { code: 'П5', name: 'Полочка', scale: '1:2', sheets: S_COUNT, mass: (p.shelves[0].mShelf * p.shelves.length).toFixed(2) });
   return { code: 'П5', name: 'Полочка', items: dr.items };
 }
 
-function bracketOffsets(p, sh) {
-  const nBr = Math.max(1, p.angN);
-  if (nBr === 1) return [0];
-  const st = Math.min(p.angSpan, sh.width - p.angA);
-  const out = [];
-  for (let i = 0; i < nBr; i++) out.push(-st * (nBr - 1) / 2 + i * st);
-  return out;
-}
 
 /* --- Лист 6: ограждение --- */
 function sheetOgradenie(p) {
@@ -666,7 +691,7 @@ function sheetOgradenie(p) {
   const k = Math.min(maxW / Math.max(sh.rodLen, 1), 0.16);
   const len = sh.rodLen * k;
   dr.text(x0, y0 + 14, 3.6, 'Поз. 5 — Ограждение (' + p.shelves.length + ' шт.), пруток Ø' + p.rodD, 'ТЕКСТ');
-  dr.text(x0, y0 + 8, 3, 'Развёртка прутка: ' + sh.posts + ' шт по ' + p.postH + ' мм + 2 контура по ' + sh.perim.toFixed(0) + ' мм', 'ТЕКСТ');
+  dr.text(x0, y0 + 8, 3, `Развёртка: столбики ${sh.postsTotal} шт по ${p.postH} мм + прутки 2×${sh.railLenZ} и 2×${sh.railLenX} мм`, 'ТЕКСТ');
   dr.line(x0, y0, x0 + len, y0, 'КОНТУР');
   dr.line(x0, y0 + 4, x0 + len, y0 + 4, 'КОНТУР');
   dr.line(x0, y0, x0, y0 + 4, 'КОНТУР');
@@ -674,22 +699,31 @@ function sheetOgradenie(p) {
   dr.dimH(x0, y0, x0 + len, y0, y0 + 14, (sh.rodLen / 1000).toFixed(2) + ' м');
   dr.text(x0, y0 - 4, 2.8, `М ${(1 / k).toFixed(1)}:1`, 'ТЕКСТ');
 
-  // контур в плане
+  // схема ограждения в плане: пластина, прутки, столбики
+  const lay = railingLayout(sh);
   const cx = 250, cy = 150, kk = Math.min(110 / sh.depth, 110 / sh.width);
   const dw = sh.depth * kk, dh = sh.width * kk;
   dr.rect(cx - dw / 2, cy - dh / 2, dw, dh, 'КОНТУР');
-  dr.rect(cx - dw / 2 + sh.ins * kk, cy - dh / 2 + sh.ins * kk, dw - 2 * sh.ins * kk, dh - 2 * sh.ins * kk, 'ОСЕВАЯ');
-  const pts = perimeterPoints(cx - dw / 2 + sh.ins * kk, cx + dw / 2 - sh.ins * kk,
-    cy - dh / 2 + sh.ins * kk, cy + dh / 2 - sh.ins * kk, sh.posts);
-  pts.forEach(([x, y]) => { dr.circle(x, y, p.rodD / 2 * kk, 'ОТВЕРСТИЯ'); });
-  dr.text(cx - dw / 2, cy + dh / 2 + 14, 3.2, 'Контур ограждения в плане', 'ТЕКСТ');
+  const PX = x => cx - dw / 2 + x * kk, PY = z => cy + (sh.width / 2 - z) * kk;
+  for (const rl of lay.rails) {
+    const ax = rl.dir === 'z' ? PX(rl.at) : PX(rl.a);
+    const ay = rl.dir === 'z' ? PY(rl.a) : PY(rl.at);
+    const bx = rl.dir === 'z' ? PX(rl.at) : PX(rl.b);
+    const by = rl.dir === 'z' ? PY(rl.b) : PY(rl.at);
+    dr.line(ax, ay, bx, by, 'КОНТУР');
+  }
+  for (const pt of lay.posts) {
+    dr.circle(PX(pt.x), PY(pt.z), p.postD / 2 * kk, 'ОТВЕРСТИЯ');
+  }
+  dr.text(cx - dw / 2, cy + dh / 2 + 14, 3.2, 'Схема ограждения в плане (прутки и столбики)', 'ТЕКСТ');
+  dr.text(cx - dw / 2, cy + dh / 2 + 8, 2.8, `Пруток Ø${p.rodD} — 4 шт: 2×${sh.railLenZ} мм и 2×${sh.railLenX} мм`, 'ТЕКСТ');
 
   // таблица раскроя
   const tx = 24, ty = 150, rows = [
     ['Наименование', 'Кол.', 'Длина, мм'],
-    ['Столбик Ø' + p.rodD + '×' + p.postH, String(sh.posts), p.postH + ''],
-    ['Пруток контур (верх)', '1', sh.perim.toFixed(0)],
-    ['Пруток контур (середина)', '1', sh.perim.toFixed(0)],
+    ['Столбик Ø' + p.postD + '×' + p.postH, String(sh.postsTotal), p.postH + ''],
+    ['Пруток Ø' + p.rodD + ' (вдоль ширины)', '2', sh.railLenZ.toFixed(0)],
+    ['Пруток Ø' + p.rodD + ' (вдоль глубины)', '2', sh.railLenX.toFixed(0)],
     ['Итого на полочку', '—', sh.rodLen.toFixed(0)],
   ];
   const cw = [96, 24, 42];
@@ -701,13 +735,14 @@ function sheetOgradenie(p) {
     dr.text(tx + cw[0] + 2, yy, 3, r[1], 'ТЕКСТ');
     dr.text(tx + cw[0] + cw[1] + 2, yy, 3, r[2], 'ТЕКСТ');
   });
-  dr.text(tx, ty + 8, 3.2, 'Раскрой прутка на одну полочку', 'ТЕКСТ');
+  dr.text(tx, ty + 8, 3.2, 'Раскрой на одну полочку', 'ТЕКСТ');
 
   techBlock(dr, 232, 252, [
     `Ограждение полочки, ${p.shelves.length} шт.`,
     `Пруток круглый Ø${p.rodD} мм, ${p.mat}.`,
-    `Столбики ${p.posts} шт × ${p.postH} мм — приварить к полочке.`,
-    `Контуры: верхний и средний — по периметру, приварить к столбикам.`,
+    `Столбики Ø${p.postD}×${p.postH} мм, ${sh.postsTotal} шт — приварить к полочке.`,
+    `Прутки: 2 шт по ${sh.railLenZ} мм и 2 шт по ${sh.railLenX} мм — на осях сторон квадрата ${sh.axisD}×${sh.axisW} мм.`,
+    `Пруток лежит на столбиках, прихватывается в 2 точках по длине.`,
     `Длина прутка на полочку: ${(sh.rodLen / 1000).toFixed(2)} м.`,
     `Сварка — по ГОСТ Р 52916-2008, катет 3 мм.`,
     `Швы зачистить, покрытие RAL 9005.`,
@@ -722,7 +757,7 @@ function sheetVedomost(p) {
   const x0 = 30, y0 = 262;
   dr.text(x0, y0, 4, 'Ведомость полочек', 'ТЕКСТ');
   const cols = [16, 30, 30, 30, 28, 40, 30];
-  const rows = [['№', 'Угол, °', 'Глубина', 'Ширина', 'Столбиков', 'Пруток, м', 'Масса, кг']];
+  const rows = [['№', 'Угол, °', 'Глубина', 'Ширина', 'Столб./стор.', 'Пруток, м', 'Масса, кг']];
   p.shelves.forEach((q, i) => {
     rows.push([String(i + 1), q.ang.toFixed(0), String(q.depth), String(q.width),
       String(q.posts), (q.rodLen / 1000).toFixed(2), q.mTotal.toFixed(2)]);
@@ -788,20 +823,6 @@ function sheetVedomost(p) {
   return { code: 'П7', name: 'Ведомость / спецификация', items: dr.items };
 }
 
-function perimeterPoints(xA, xB, zA, zB, n) {
-  const pts = [[xA, zA], [xA, zB], [xB, zB], [xB, zA]];
-  const lens = [Math.abs(zB - zA), Math.abs(xB - xA), Math.abs(zB - zA), Math.abs(xB - xA)];
-  const total = lens.reduce((a, b) => a + b, 0);
-  const out = [];
-  for (let i = 0; i < n; i++) {
-    let d = (i / n) * total, kk = 0;
-    while (kk < 3 && d > lens[kk]) { d -= lens[kk]; kk++; }
-    const t = lens[kk] ? d / lens[kk] : 0;
-    const a = pts[kk], b = pts[(kk + 1) % 4];
-    out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
-  }
-  return out;
-}
 const fmtInt = v => Math.round(v).toString();
 const chainLenSafe = p => Math.hypot(p.Rp - 20, p.hang - 28);
 
