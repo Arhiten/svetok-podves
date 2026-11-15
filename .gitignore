@@ -1,0 +1,7 @@
+node_modules/
+out/
+tmp-dwg/
+public/_check/
+*.log
+.DS_Store
+Thumbs.db

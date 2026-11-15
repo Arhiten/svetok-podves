@@ -1,0 +1,12 @@
+{
+  "name": "flower-hanger",
+  "version": "1.0.0",
+  "description": "Цветочный подвес — кольцо из полосы, 4 сегмента. Визуализация и расчёт.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "three": "^0.160.0"
+  }
+}
